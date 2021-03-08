@@ -9,4 +9,724 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# CODE COMING SOON!
+## Load Packages  
+Load the following libraries. If they are not installed, run install.packages("packagename")
+```{r results='hide', warning=FALSE, message=FALSE}
+library(rmarkdown)
+library(ggplot2) 
+library(beeswarm)
+library(MASS) 
+library(generalhoslem) 
+library(qwraps2) 
+library(quantreg) 
+library(olsrr)
+library(car)
+library(ggpubr)
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(VGAM)
+library(gridExtra)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+```
+
+## Dataframes Setup
+1. Import the data from a CSV file 
+    + Should have *224 rows* 
+```{r results='hide'}
+setwd("~/Dropbox/My Mac (Kristin’s MacBook Pro)/Desktop")
+Map_All <- read.csv("Mapping_Coding_CH_200918.csv", na.strings = "N/A")
+```
+
+```{r}
+dim(Map_All)
+```
+
+2. Subset data by age group (4;6-9;11)  
+    + Should have *220 rows* (includes children never tested on this task)  
+```{r results='hide'}
+Map49 <- subset(Map_All, Map_All$Age_Rounded>=4.5 & Map_All$Age_Rounded<10 | is.na(Map_All$Age_Rounded))
+```
+    
+```{r}
+dim(Map49)
+```    
+    
+3. Create a new dataframe from desired subset (e.g., children we are including in the analyses)
+    + Should have *__190 rows__*
+```{r results='hide'}
+Total_Inc_Study <- subset(Map49, Map49$Including.in.Study == "Yes" & Map49$Coded. == "Yes" & Map49$Mapping_Include. == "Yes" & Map49$SES != '')
+```
+    
+```{r}
+dim(Total_Inc_Study)
+```  
+View(Total_Inc_Study)
+## Participant Demographics
+* How many children per group?
+    + EE: English Early, hearing children exposed to English from birth
+    + EL: English Later, D/HH children exposed to English "later"
+    + AE: ASL Early, D/HH children exposed to ASL from birth (have at least 1 D/HH parent)
+    + AL: ASL Later, D/HH children exposed to ASL "later" (have hearing parents)
+```{r}
+EE_Inc <- subset(Total_Inc_Study, Total_Inc_Study$Group_4cat == "English Early")
+nrow(EE_Inc) 
+EL_Inc <- subset(Total_Inc_Study, Total_Inc_Study$Group_4cat == "English Later")
+nrow(EL_Inc) 
+AE_Inc <- subset(Total_Inc_Study, Total_Inc_Study$Group_4cat == "ASL Early")
+nrow(AE_Inc) 
+AL_Inc <- subset(Total_Inc_Study, Total_Inc_Study$Group_4cat == "ASL Later")
+nrow(AL_Inc) 
+```
+* How many children were tested, but were not included in analyses?   
+    + 6 total: 3 had additional disabilities/suspected disabilities, 1 refused to participate, 1 due to technical difficulties (not filmed entirely), 1 Early ASL child tested in English after trying ASL (difficult to communicate with)
+```{r}
+Tested_Not_Inc <- subset(Map49, Map49$Tested == "Yes" & Map49$Mapping_Include. == "No")
+nrow(Tested_Not_Inc)
+```
+* Does the status of including in study depend on which group children were in?  
+    + No, the status of inclusion in study is not dependent on group (p > 0.05).
+```{r warning=FALSE}
+EE_Not_Inc <- subset(Tested_Not_Inc, Tested_Not_Inc$Group_4cat == "English Early")
+EL_Not_Inc <- subset(Tested_Not_Inc, Tested_Not_Inc$Group_4cat == "English Later")
+AE_Not_Inc <- subset(Tested_Not_Inc, Tested_Not_Inc$Group_4cat == "ASL Early")
+AL_Not_Inc <- subset(Tested_Not_Inc, Tested_Not_Inc$Group_4cat == "ASL Later")
+rnames <- c("Including in Study","Not Including in Study")
+cnames <- c("English Early","English Later","ASL Early","ASL Later")
+Table_IncStudy <- matrix(c(nrow(EE_Inc),nrow(EL_Inc),nrow(AE_Inc),nrow(AL_Inc),nrow(EE_Not_Inc),nrow(EL_Not_Inc),nrow(AE_Not_Inc),nrow(AL_Not_Inc)), nrow=2, ncol=4, byrow=TRUE, dimnames=list(rnames,cnames))
+Table_IncStudy
+chisq.test(Table_IncStudy)
+```   
+* Demographic table information: descriptive statistics for total children and for each group (e.g., EE, EL, AE, AL)    
+    + Sex  
+    + Age
+    + SES
+```{r results='hide'}
+table1::label(Total_Inc_Study$Age_Rounded) <- "Age (years)"
+table1::label(Total_Inc_Study$SES) <- "SES"
+table1::label(Total_Inc_Study$M.F) <- "Sex"
+table1::label(Total_Inc_Study$Grade.) <- "Grade"
+table1::label(Total_Inc_Study$Race) <- "Race"
+table1::label(Total_Inc_Study$Ethnicity) <- "Ethnicity"
+table1::table1(~Age_Rounded + SES + M.F + Grade. + Race + Ethnicity | Group_4cat, data = Total_Inc_Study)
+```
+
+## Analyses
+* Rename dataframe for ease and create new subsetted dataframes for language timing and modality variables.  
+```{r}
+Map_Inc <- Total_Inc_Study 
+nrow(Map_Inc) 
+Early <- subset(Map_Inc, Map_Inc$Timing == "Early")
+nrow(Early)
+Later <- subset(Map_Inc, Map_Inc$Timing == "Later")
+nrow(Later)
+ASL <- subset(Map_Inc, Map_Inc$Modality == "ASL")
+nrow(ASL)
+English <- subset(Map_Inc, Map_Inc$Modality == "English")
+nrow(English)
+```
+
+> General Performance  
+
+* Performing signifcantly greater than chance? 
+    + Yes for overall, Early, Later, ASL, and English groups
+```{r}
+wilcox.test(Map_Inc$AvgCorrect_Total, mu = .25, alternative = "greater") 
+wilcox.test(Early$AvgCorrect_Total, mu = .25, alternative = "greater")
+wilcox.test(Later$AvgCorrect_Total, mu = .25, alternative = "greater") 
+wilcox.test(ASL$AvgCorrect_Total, mu = .25, alternative = "greater") 
+wilcox.test(English$AvgCorrect_Total, mu = .25, alternative = "greater") 
+```
+* Performance at or near ceiling (greater than or equal to 90%)
+    + 63% of children performed at or near ceiling.
+```{r}
+Ceil <- Map_Inc$AvgCorrect_Total
+All <- .9 #ceiling performance 
+Var <- length(which(Ceil>= All))
+N_O <- nrow(Map_Inc) 
+(Var/N_O)*100
+```
+
+> QUESTION 1: What is the relationship between language experience and mapping skills?
+
+* [Helpful Tobit Model Link](https://stats.idre.ucla.edu/r/dae/tobit-models/)      
+* Create dataframe for tobit models (includes adding set size and mapping pair columns)
+    + Should have *__1710 entries / 9 =  190 children__*
+    + 9 rows for each child because we have 3 set sizes for each of the 3 different mapping pairs (Numeral-Word, Quantity-Word, Quantity-Numeral)
+
+```{r results='hide'}
+which(colnames(Map_Inc)=="AvgCorrect_Sm_QW") #344
+which(colnames(Map_Inc)=="AvgCorrect_Lrg_WN") #352
+T_long <- pivot_longer(Map_Inc, cols = 344:352, values_to = "AvgCorr")
+which(colnames(T_long)=="Item1_QN_Answer") #29
+which(colnames(T_long)=="Prop_PointingBehavior_All") #361
+T_short <- T_long[,-c(29:361)]
+which(colnames(T_short)=="Prop_AnyCounting_QN_NQ") #32
+which(colnames(T_short)=="Prop_AnyCounting_All") #34
+T_short <- T_short[,-c(32:34)]
+T_short <-  mutate(T_short, SetSize = case_when(grepl("Sm", T_short$name) ~ "Small", grepl("Med", T_short$name) ~"Medium", grepl("Lrg", T_short$name) ~"Large"))
+T_short$Set_Size <- as.factor(factor(as.character(T_short$SetSize), levels=c("Small", "Medium", "Large"), exclude=""))
+T_short$Set_Size_refM <- as.factor(factor(as.character(T_short$SetSize), levels=c("Medium", "Small", "Large"), exclude=""))
+T_short <- mutate(T_short, MapPair = case_when(grepl("QW", T_short$name) ~ "Quantity-Word", grepl("QN", T_short$name) ~"Quantity-Numeral", grepl("WN", T_short$name) ~"Numeral-Word"))
+T_short$MapPair <- as.factor(factor(as.character(T_short$MapPair), levels=c("Numeral-Word","Quantity-Numeral", "Quantity-Word"), exclude=""))
+T_short$MapPair_refQW <- as.factor(factor(as.character(T_short$MapPair), levels=c("Quantity-Word","Numeral-Word","Quantity-Numeral"), exclude=""))
+```
+
+```{r}
+nrow(T_short)
+```
+
+#### Tobit model #1 (ages 4;6-9;11)
+* Outcome variable: Overall Mapping Performance
+* Predictors: Age + SES + Modality + Timing + Set Size + Map Pair + Timing x Modality
+* Result: Hauck-Donner effect for Age due to ceiling effect
+```{r warning=FALSE}
+summary(Map_t<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size + MapPair + Timing:Modality, tobit(Upper = 1), data = T_short))
+```
+* 8 and 9-year-old (n=55) ceiling performance
+    + 35% of 8 and 9-year-olds perform at ceiling
+```{r}
+Map_Inc_89 <- subset(Map_Inc, Map_Inc$Age_Rounded >=8)
+nrow(Map_Inc_89)
+
+Ceil <- Map_Inc_89$SumCorrectTotal_All
+All <- 51
+Var <- length(which(Ceil>= All))
+N <- nrow(Map_Inc_89) 
+(Var/N)*100 
+```
+
+```{r message=FALSE, fig.align='center', fig.height=4, fig.width=5}
+older <- ggplot(data = Map_Inc_89, mapping = aes(x=Age_Rounded, y=AvgCorrect_Total)) + geom_point() + geom_smooth(method="loess", color="black") + labs(x="Age (years)", y="Proportion Correct") + theme_bw() + theme(legend.position="top", text = element_text(size=16), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + coord_cartesian(xlim = c(8, 10), ylim= c(0.2,1)) + scale_y_continuous(breaks=c(0.2, 0.4, 0.6, 0.8, 1)) + scale_x_continuous(breaks=c(8, 8.5, 9, 9.5, 10.0)) + geom_hline(yintercept=0.25, linetype="dashed", color = "black")
+older
+```
+
+#### Tobit model #2 (ages 4;6-7;11). Not including 8 to 9-year-olds to avoid Hauck-Donner effect. 
+* Should have *__1215 entries / 9 =  135 children__*
+```{r}
+Map_58 <- subset(T_short, T_short$Age_Rounded <8)
+nrow(Map_58) 
+```
+* Outcome variable: Overall Mapping Performance
+* Predictors: Age + SES + Set Size + Map Pair + Modality + Timing + Timing x Modality
+* Result: All predictors besides Modality are significant
+
+__Model 2a: Reference Groups are Numeral-Word and Small__
+```{r}
+summary(Map_58_I<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size + MapPair + Modality:Timing, tobit(Upper = 1), data = Map_58))
+```
+__Model 2b: Reference Groups are Quantity-Word and Medium__
+```{r}
+summary(Map_58_I_ref<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size_refM + MapPair_refQW + Modality:Timing, tobit(Upper = 1), data = Map_58))
+```
+
+* Create dataframe for 4;6-7;11 year olds
+    + Ensure has 135 children
+```{r}
+Map_Inc_58 <- subset(Map_Inc, Map_Inc$Age_Rounded <8) 
+nrow(Map_Inc_58)
+```
+
+```{r results='hide'}
+M <- ggplot(data=Map_Inc_58, mapping = aes(x= Modality, y=AvgCorrect_Total)) + geom_boxplot() + geom_dotplot(mapping=aes(fill=Modality, color=Modality), alpha=0.7, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Proportion Correct") + ggtitle("a") + scale_fill_manual(name = "Language Modality", breaks=c("ASL", "English"), values=c("tan2", "forestgreen"), labels=c("ASL (62)", "English (73)")) + scale_color_manual(name = "Language Modality", breaks=c("ASL", "English"), values=c("tan2", "forestgreen"), labels=c("ASL (62)", "English (73)")) + stat_summary(fun=mean, geom="point", shape=18, size=5, color="black") + geom_hline(yintercept=0.25, linetype="dashed", color = "black")
+T <- ggplot(data=Map_Inc_58, mapping = aes(x= Timing, y=AvgCorrect_Total)) + geom_boxplot() + geom_dotplot(mapping=aes(fill=Timing, color=Timing), alpha=0.7, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Proportion Correct") + ggtitle("b") + scale_fill_manual(name = "Language Timing", breaks=c("Early", "Later"), values=c("deepskyblue3", "firebrick3"), labels=c("Early (64)", "Later (71)")) + scale_color_manual(name = "Language Timing", breaks=c("Early", "Later"), values=c("deepskyblue3", "firebrick3"), labels=c("Early (64)", "Later (71)")) + stat_summary(fun=mean, geom="point", shape=18, size=5, color="black") + geom_hline(yintercept=0.25, linetype="dashed", color = "black")
+```
+
+```{r message=FALSE, fig.height=4, fig.width=10}
+grid.arrange(M,T,nrow=1)
+```
+
+
+* [Create HTML tobit model tables](https://strengejacke.github.io/sjPlot/articles/tab_model_estimates.html)
+    + Will need to edit after to add R-squared values
+```{r}
+tab_model(Map_58_I, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Modality (English)", "Timing (Later)", "Medium", "Large", "Quantity-Numeral", "Quantity-Word", "Modality (English) x Timing (Later)"), dv.labels = c("Reference groups: Small and Numeral-Word"), string.p = "p-value", string.est = "Estimate", string.se = "Standard Error", string.stat = "t-statistic")
+tab_model(Map_58_I_ref, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Modality (English)", "Timing (Later)", "Small", "Large", "Numeral-Word", "Quantity-Numeral", "Modality (English) x Timing (Later)"), dv.labels = c("Reference groups: Medium and Quantity-Word"), string.p = "p-value", string.est = "Estimate", string.se = "Standard Error", string.stat = "t-statistic")
+```
+
+* [Calculate model fit](https://www.stata.com/support/faqs/statistics/pseudo-r2/)
+    + Log likelihood of null model: -724.17
+    + Log likelihood of our model: -546.07
+    + R-squared: 0.25
+```{r}
+summary(Map_58_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = Map_58)) 
+print(R2_Model2 <- 1 - (-546.07 / -724.17))
+```
+
+* Obtain mapping performance means for mapping pairs and set sizes
+```{r}
+QW_58 <- subset(Map_58, Map_58$MapPair == "Quantity-Word")
+QN_58 <- subset(Map_58, Map_58$MapPair == "Quantity-Numeral")
+NW_58 <- subset(Map_58, Map_58$MapPair == "Numeral-Word")
+mean(QW_58$AvgCorr) 
+mean(QN_58$AvgCorr) 
+mean(NW_58$AvgCorr) 
+
+Map_58_Sm <- subset(Map_58, Map_58$Set_Size == "Small")
+Map_58_Med <- subset(Map_58, Map_58$Set_Size == "Medium")
+Map_58_Lrg <- subset(Map_58, Map_58$Set_Size == "Large")
+mean(Map_58_Sm$AvgCorr) 
+mean(Map_58_Med$AvgCorr) 
+mean(Map_58_Lrg$AvgCorr) 
+```
+
+* Create subsetted dataframes for Timing and Modality (obtain ns and mean group performances)
+    + Early: 64 children, M = 0.90
+    + Later: 71 children, M = 0.82
+    + English: 73 children, M = 0.87
+    + ASL: 62 children, M = 0.84
+```{r}
+Early_58 <- (subset(Map_Inc_58, Map_Inc_58$Timing == "Early")) 
+nrow(Early_58)
+mean(Early_58$AvgCorrect_Total) 
+Later_58 <- (subset(Map_Inc_58, Map_Inc_58$Timing == "Later")) 
+nrow(Later_58) 
+mean(Later_58$AvgCorrect_Total) 
+English_58 <- (subset(Map_Inc_58, Map_Inc_58$Modality == "English")) 
+nrow(English_58)
+mean(English_58$AvgCorrect_Total) 
+ASL_58 <- (subset(Map_Inc_58, Map_Inc_58$Modality == "ASL")) 
+nrow(ASL_58) 
+mean(ASL_58$AvgCorrect_Total) 
+```
+
+#### Explaining the Timing x Modality significant interaction
+```{r  fig.align='center', fig.height=4, fig.width=9}
+interaction.plot(Map_58$Timing, Map_58$Modality, Map_58$AvgCorr,  ylab = "Proportion Correct", xlab = "Language Timing", trace.label = "Language Modality", legend=TRUE, fixed=TRUE)
+```
+* Similar performances within Timing groups?   
+    + Early: Yes (p = 0.82). ASL Early & English Early have M = 0.90
+    + Later: Yes (p=0.2). ASL Later: 0.79, English Later: 0.85
+```{r}
+wilcox.test(AvgCorrect_Total ~ Group_4cat, data = Early_58, exact = FALSE)
+mean(subset(Early_58, Group_4cat == "ASL Early")$AvgCorrect_Total) 
+mean(subset(Early_58, Group_4cat == "English Early")$AvgCorrect_Total)
+```
+
+```{r}
+wilcox.test(AvgCorrect_Total ~ Group_4cat, data = Later_58, exact = FALSE)
+mean(subset(Later_58, Group_4cat == "ASL Later")$AvgCorrect_Total)
+mean(subset(Later_58, Group_4cat == "English Later")$AvgCorrect_Total) 
+```
+
+Perhaps children's age of language exposure within the Later group can explain the performance difference by modality (although not significant) within the Later group compared to the Early group. 
+
+* Age of first language exposure demographics for Later groups
+```{r message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=5}
+aggregate(Age.of.Exposure..mo..Language ~ Group_4cat, data=Later_58, mean)
+aggregate(Age.of.Exposure..mo..Language ~ Group_4cat, data=Later_58, sd)
+aggregate(Age.of.Exposure..mo..Language ~ Group_4cat, data=Later_58, range)
+ggplot(data=Later_58, mapping = aes(x= Group_4cat, y=Age.of.Exposure..mo..Language)) + geom_boxplot() + geom_dotplot(alpha=0.7, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Age of first exposure to language (months)") 
+```
+
+* Does age of first language exposure differ between children exposed to language Later (e.g., ASL Later and English Later groups)?
+    + Used Wilcoxon Sum Rank Test due to the data not being normally distributed (Shapiro-Wilk: p < 0.05)
+    + Yes, ASL Later children are exposed to language significantly later than English Later children.
+```{r}
+shapiro.test(Later_58$Age.of.Exposure..mo..Language)
+wilcox.test(Later_58$Age.of.Exposure..mo..Language ~ Later_58$Group_4cat, exact = FALSE)
+```
+
+
+> QUESTION 2: What other language-related variables predict children’s mapping skills?
+
+* Should have *__1170 entries / 9 = 130 children__*
+        + missing 1 highest count b/c child refused to participate for that task
+        + missing 4 age of first language exposure information
+* Outcome variable: Overall Mapping Performance
+* Final Model Predictors: Age + SES + Set Size + Map Pair + Age of first language exposure (AoLE), highest count, spontaneous counting
+* Result: all significant
+
+```{r}
+Map_58_M <- subset(Map_58, Map_58$HC_Conservative != "N/A" & Map_58$Age.of.Exposure..mo..Language !="N/A")
+nrow(Map_58_M) 
+```
+
+#### Tobit Model Comparisons
+* Null 
+    + Log likelihood of null model: -694.3
+```{r results='hide'}
+summary(Map_58_M_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = Map_58_M)) 
+```
+* Base (Age, SES, Set Size, Map Pair)
+```{r}
+summary(Map_58_Base<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair, tobit(Upper = 1), data = Map_58_M))
+1-(-547.69/-694.3) 
+```
+* Base + Timing
+```{r}
+summary(Map_58_T<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + Timing, tobit(Upper = 1), data = Map_58_M))
+1-(-536.9/-694.3)
+```
+* Base + AoLE
+```{r}
+summary(Map_58_AoLE<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + Age.of.Exposure..mo..Language, tobit(Upper = 1), data = Map_58_M))
+1-(-530.63/-694.3) 
+```
+* Base + Timing + AoLE
+```{r}
+summary(Map_58_T_AoLE<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + Timing + Age.of.Exposure..mo..Language, tobit(Upper = 1), data = Map_58_M))
+1-(-530.6/-694.3)
+```
+* Motivation for subsequent models  
+    + Similar model fits for models with or without timing
+    + AoLE appears to account for the variability in timing of language exposure
+    + Therefore, we do not include Timing for the remaining models
+* Base + AoLE + Highest Count
+```{r}
+summary(Map_58_AoLE_HC<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + Age.of.Exposure..mo..Language + HC_Conservative, tobit(Upper = 1), data = Map_58_M))
+1-(-518.6464/-694.3) 
+```
+* BASE + AoLE + Highest Count + Spontaneous Counting
+```{r}
+summary(Map_58_AoLE_HC_SC<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + Age.of.Exposure..mo..Language + HC_Conservative + Prop_CountingBehavior_All, tobit(Upper = 1), data = Map_58_M))
+1-(-499.804/-694.3) 
+```
+
+#### Final Tobit Model Table (NEED TO ADD R-SQUARED VALUES...)
+```{r}
+tab_model(Map_58_AoLE_HC_SC, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Medium", "Large", "Quantity-Numeral", "Quantity-Word", "Age of First Language Exposure", "Count Sequence", "Spontaneous Counting"), dv.labels = c("Final Tobit Model"), string.est = "Estimate", string.p = "p-value", string.se = "Standard Error", string.stat = "t-statistic") 
+```
+
+#### Tobit Model Comparison Table (NEED TO ADD R-SQUARED VALUES...)
+
+```{r}
+tab_model(Map_58_Base, Map_58_T, Map_58_AoLE, Map_58_T_AoLE, Map_58_AoLE_HC, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Medium", "Large", "Quantity-Numeral", "Quantity-Word", "Timing", "Age of First Language Exposure", "Count Sequence"), dv.labels = c("Base", "With Timing", "With Language Exposure", "With Timing and Language Exposure", "With Count Sequence"), string.est = "Estimate", string.p = "p-value", string.se = "Standard Error", string.stat = "t-statistic") 
+```
+
+#### Visualizations
+* Create dataframe
+    + Should still have 130 children
+```{r}
+Map_Inc_58_L <- subset(Map_Inc_58, Map_Inc_58$HC_Conservative != "N/A" & Map_Inc_58$Age.of.Exposure..mo..Language !="N/A")
+nrow(Map_Inc_58_L) 
+```
+
+```{r results='hide'}
+l <- ggplot(data = Map_Inc_58_L, mapping = aes(x=Age.of.Exposure..mo..Language, y=AvgCorrect_Total)) + geom_point() + geom_smooth(method="loess", color="black") + labs(x="Age of Language Exposure (months)", title = "a") + theme_bw() + theme(legend.position="top", text = element_text(size=16), axis.title.y=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + coord_cartesian(xlim = c(0, 100), ylim= c(0.2,1)) + scale_y_continuous(breaks=c(0.2, 0.4, 0.6, 0.8, 1)) + scale_x_continuous(breaks=c(0, 25, 50, 75, 100))
+s <- ggplot(data = Map_Inc_58_L, mapping = aes(x=Prop_CountingBehavior_All, y=AvgCorrect_Total)) + geom_point() + geom_smooth(method="loess", color="black") + labs(x="Proportion of Spontaneous Counting", title = "b") + theme_bw() + theme(legend.position="top", text = element_text(size=16), axis.title.y=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + coord_cartesian(xlim = c(0, 1), ylim= c(0.2,1)) + scale_y_continuous(breaks=c(0.2, 0.4, 0.6, 0.8, 1)) + scale_x_continuous(breaks=c(0, 0.2, 0.4, 0.6, 0.8, 1))
+h <- ggplot(data = Map_Inc_58_L, mapping = aes(x=HC_Conservative, y=AvgCorrect_Total)) + geom_point() + geom_smooth(method="loess", color="black") + labs(x="Count Sequence Knowledge", title = "c") + theme_bw() + theme(legend.position="top", text = element_text(size=16), panel.border = element_blank(), axis.title.y=element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + coord_cartesian(xlim = c(0, 100), ylim= c(0.2,1)) + scale_y_continuous(breaks=c(0.2, 0.4, 0.6, 0.8, 1)) + scale_x_continuous(breaks=c(0, 25, 50, 75, 100))
+```
+
+```{r message=FALSE, fig.align='center'}
+grid.arrange(arrangeGrob(l,s,h, left = text_grob("Proportion Correct", rot = 90, vjust = 1, size = 16)))
+```
+
+#### Do children's ASL expressive vobabulary skills predict their mapping performance? 
+* Outcome variable: Overall Mapping Performance
+* Predictors: Picture Naming performance + Base
+* Only have this measure for a subset of ASL children (n=62)
+    + Should have 35 children (315 rows): 21 ASL Early and 14 ASL Later
+```{r}
+nrow(ASL_58)
+ASL_58_PN <- subset(ASL_58, ASL_58$PN_PropCorr !="N/A")
+nrow(ASL_58_PN)
+sum(ASL_58_PN$Group_4cat == "ASL Early") 
+sum(ASL_58_PN$Group_4cat == "ASL Later") 
+```
+
+```{r}
+shapiro.test(ASL_58_PN$PN_PropCorr)
+wilcox.test(PN_PropCorr ~ Group_4cat, data = Map_Inc_58, exact = FALSE)
+mean(subset(ASL_58_PN, Group_4cat == "ASL Early")$PN_PropCorr) 
+mean(subset(ASL_58_PN, Group_4cat == "ASL Later")$PN_PropCorr) 
+```
+
+#### TOBIT MODEL
+```{r}
+Map_58_ASL <- subset(Map_58, Map_58$Modality == "ASL" & Map_58$PN_PropCorr !="N/A")
+nrow(Map_58_ASL)
+```
+* Null 
+    + Log likelihood of null model: -164.6
+```{r results='hide'}
+summary(Map_58_PN_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = Map_58_ASL)) 
+```
+* Only Picture Naming
+    + Still not significant (no longer any error)
+```{r}
+summary(Map_58_PN<- vglm(AvgCorr ~  PN_PropCorr, tobit(Upper = 1.0), data = Map_58_ASL)) 
+```
+* Base (Age, SES, Set Size, Map Pair)
+```{r}
+summary(Map_58_PN_Base<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair, tobit(Upper = 1), data = Map_58_ASL))
+1-(-121.1/-164.6) 
+```
+* Base + Picture Naming
+    + Convergence not obtained
+```{r}
+summary(Map_58_PN_T<- vglm(AvgCorr ~  Age_Rounded + SES + Set_Size + MapPair + PN_PropCorr, tobit(Upper = 1), data = Map_58_ASL))
+1-(-120.8/-164.6)
+```
+
+
+> QUESTION 3: Does language timing and/or modality affect children’s performance on mapping pairs differently?
+
+* Reorder Mapping Pairs to: QN, QW, NW
+```{r results='hide'}
+T_short$MapPair <- as.factor(factor(as.character(T_short$MapPair), levels=c("Quantity-Numeral", "Quantity-Word", "Numeral-Word"), exclude=""))
+str(T_short$MapPair)
+```
+* 8 to 9-year-olds mapping pair performance
+    + Should have 495 entries (n=55)
+```{r fig.align='center', fig.height=4, fig.width=5}
+Map_89 <- subset(T_short, T_short$Age_Rounded >=8)
+nrow(Map_89) 
+map_89 <- ggplot(Map_89, aes(MapPair, AvgCorr)) + geom_boxplot() + labs(x="Mapping Pairs", y="Proportion Correct") + scale_y_continuous (breaks=c(0.2, 0.4, 0.6, 0.8, 1.0), limits = c(0.2,1.0), expand = c(0,0)) + theme_bw() + theme(legend.position="top", text = element_text(size=16), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))
+map_89
+```
+
+#### Tobit models: Mapping Pairs
+* Numeral-Word Tobit Model
+    + CONVERGENCE NOT OBTAINED... HAVE TOO MANY PREDICTORS? DOES THIS MEAN NOT A GOOD MODEL?
+    + Null log likelihood: -174.7
+    + 78% of 4;6 - 7;11 year olds at ceiling 
+```{r results='hide'}
+summary(NW_58_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = NW_58)) 
+```
+
+```{r}
+summary(NW_58_I<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size + Modality:Timing, tobit(Upper = 1), data = NW_58))
+print(R2_NW <- 1 - (-154.2  / -174.7))
+
+Ceil_NW <- NW_58$AvgCorr
+All_NW <- 1 #ceiling performance 
+Var_NW <- length(which(Ceil_NW>= All_NW)) #number of observations equal to ceiling 
+N_NW <- nrow(NW_58) #number of total observations
+(Var_NW/N_NW)*100 
+```
+
+* Quantity-Word Tobit Model
+    + Null log likelihood: -242.2
+```{r results='hide'}
+summary(QW_58_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = QW_58)) 
+```
+
+```{r}
+summary(QW_58_I<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size + Modality:Timing, tobit(Upper = 1), data = QW_58))
+print(R2_QW <- 1 - (-186.5  / -242.2)) 
+```
+* Quantity-Numeral Tobit Model
+    + Null log likelihood: 256.8
+```{r results='hide'}
+summary(QN_58_null<- vglm(AvgCorr ~  1, tobit(Upper = 1.0), data = QN_58))
+```
+
+```{r}
+summary(QN_58_I<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size + Modality:Timing, tobit(Upper = 1), data = QN_58))
+print(R2_QN <- 1 - (-188.3 / -256.8)) 
+```
+
+* Output table
+OK TO INCLUDE NUMERAL-WORD?
+```{r}
+tab_model(QW_58_I, QN_58_I, NW_58_I, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Modality (English)", "Timing (Later)", "Medium", "Large", "Modality (English) x Timing (Later)"), dv.labels = c("Quantity-Word", "Quantity-Numeral", "Numeral-Word"), string.p = "p-value", string.est = "Estimate", string.se = "Standard Error", string.stat = "t-statistic")
+```
+
+* Reference Models + Output table
+OK TO INCLUDE NUMERAL-WORD?
+```{r results='hide'}
+summary(QW_58_I_ref<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size_refM + Modality:Timing, tobit(Upper = 1), data = QW_58))
+summary(QN_58_I_ref<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size_refM + Modality:Timing, tobit(Upper = 1), data = QN_58))
+summary(NW_58_I_ref<- vglm(AvgCorr ~  Age_Rounded + SES + Modality + Timing + Set_Size_refM + Modality:Timing, tobit(Upper = 1), data = NW_58))
+tab_model(QW_58_I_ref, QN_58_I_ref, NW_58_I_ref, auto.label = FALSE, show.ci = FALSE, show.se = TRUE, show.stat = TRUE, show.est = TRUE, pred.labels = c("Intercept 1", "Intercept 2","Age", "SES", "Modality (English)", "Timing (Later)", "Small", "Large", "Modality (English) x Timing (Later)"), dv.labels = c("Quantity-Word", "Quantity-Numeral", "Numeral-Word"), string.est = "Estimate", string.p = "p-value", string.se = "Standard Error", string.stat = "t-statistic")
+```
+
+* Mapping pair performance by timing and modality
+```{r}
+Early_QW_58 <- subset(QW_58, QW_58$Timing == "Early")
+mean(Early_QW_58$AvgCorr) 
+Later_QW_58 <- subset(QW_58, QW_58$Timing == "Later")
+mean(Later_QW_58$AvgCorr) 
+English_QW_58 <- subset(QW_58, QW_58$Modality == "English")
+mean(English_QW_58$AvgCorr) 
+ASL_QW_58 <- subset(QW_58, QW_58$Modality == "ASL")
+mean(ASL_QW_58$AvgCorr) 
+Early_QN_58 <- subset(QN_58, QN_58$Timing == "Early")
+mean(Early_QN_58$AvgCorr) 
+Later_QN_58 <- subset(QN_58, QN_58$Timing == "Later")
+mean(Later_QN_58$AvgCorr) 
+English_QN_58 <- subset(QN_58, QN_58$Modality == "English")
+mean(English_QN_58$AvgCorr)
+ASL_QN_58 <- subset(QN_58, QN_58$Modality == "ASL")
+mean(ASL_QN_58$AvgCorr) 
+```
+
+```{r results='hide'}
+Map_58$MapPair <- as.factor(factor(as.character(Map_58$MapPair), levels=c("Quantity-Numeral", "Quantity-Word", "Numeral-Word"), exclude=""))
+nrow(Map_58)
+modality_map <- ggplot(Map_58, aes(MapPair, AvgCorr, fill=Modality)) + geom_boxplot() + labs(x="Mapping Pairs", y="Proportion Correct", fill = "Modality") + ggtitle("a") + scale_y_continuous (breaks=c(0.2, 0.4, 0.6, 0.8, 1.0), limits = c(0.2,1.0), expand = c(0,0)) + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ scale_fill_manual(name = "Language Modality", breaks=c("ASL", "English"), values=c("tan2", "forestgreen"), labels=c("ASL (62)", "English (73)")) + scale_color_manual(name = "Language Modality", breaks=c("ASL", "English"), values=c("tan2", "forestgreen"), labels=c("ASL (62)", "English (73)"))  
+timing_map <- ggplot(Map_58, aes(MapPair, AvgCorr, fill=Timing)) + geom_boxplot() + labs(x="Mapping Pairs", y="Proportion Correct", fill = "Timing") + ggtitle("b") + scale_y_continuous (breaks=c(0.2, 0.4, 0.6, 0.8, 1.0), limits = c(0.2,1.0), expand = c(0,0)) + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + scale_fill_manual(name = "Language Timing", breaks=c("Early", "Later"), values=c("deepskyblue3", "firebrick3"), labels=c("Early (64)", "Later (71)")) + scale_color_manual(name = "Language Timing", breaks=c("Early", "Later"), values=c("deepskyblue3", "firebrick3"), labels=c("Early (64)", "Later (71)"))
+```
+
+```{r warning=FALSE, fig.align='center', fig.height=4, fig.width=10}
+grid.arrange(modality_map,timing_map, nrow=1) 
+```   
+
+>  D/HH vs Hearing Mapping Performance
+
+* Create Dataframe and add Hearing Status column
+```{r}
+Map_LDvH <- subset(Map_Inc_58, Map_Inc_58$Group_4cat == "English Early" | Map_Inc_58$Group_4cat == "English Later" | Map_Inc_58$Group_4cat == "ASL Later")
+nrow(Map_LDvH) #ensure does not have ASL Early
+Hearing_Status <- c()
+for(i in 1:107)
+Hearing_Status[i] <- ifelse(grepl("English Later", Map_LDvH$Group_4cat[i]), "Deaf", ifelse(grepl("ASL Later", Map_LDvH$Group_4cat[i]), "Deaf", "Hearing"))
+Map_LDvH <- cbind(Map_LDvH, Hearing_Status)
+sum(Map_LDvH$Hearing_Status == "Deaf") 
+sum(Map_LDvH$Hearing_Status == "Hearing")
+```
+
+* Visualize D/HH vs Hearing mapping performance
+```{r warning=FALSE, message=FALSE, fig.align='center', fig.height=4, fig.width=5}
+LvH <- ggplot(data=Map_LDvH, mapping = aes(x= Hearing_Status, y=AvgCorrect_Total)) + geom_boxplot() + geom_dotplot(mapping=aes(fill=Hearing_Status, color=Hearing_Status), alpha=0.7, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Proportion Correct") + scale_fill_manual(name = "Hearing Status", breaks=c("Deaf", "Hearing"), values=c("grey0", "grey49"), labels=c("Deaf (96)", "Hearing (48)")) + scale_color_manual(name = "Hearing Status", breaks=c("Deaf", "Hearing"), values=c("grey0", "grey49"), labels=c("Deaf (96)", "Hearing (48)")) + stat_summary(fun=mean, geom="point", shape=18, size=5, color="black") + geom_hline(yintercept=0.25, linetype="dashed", color = "black")
+LvH
+```
+* Do D/HH and Hearing children perform significantly differ on the mapping task?
+    + Yes (p = 0.028). D/HH children (M = 0.90) perform signifcantly worse than hearing children (M = 0.94)
+```{r}
+Deaf_LvH <- subset(Map_LDvH, Map_LDvH$Hearing_Status == "Deaf")
+Hearing_LvH <- subset(Map_LDvH, Map_LDvH$Hearing_Status == "Hearing")
+median(Deaf_LvH$AvgCorrect_Total)
+median(Hearing_LvH$AvgCorrect_Total) 
+shapiro.test(Map_LDvH$AvgCorrect_Total) 
+wilcox.test(Map_LDvH$AvgCorrect_Total ~ Map_LDvH$Hearing_Status, exact = FALSE)
+```
+
+
+>  Visualizing Four Group Mapping Performance
+
+```{r warning=FALSE, message=FALSE, fig.align='center', fig.height=4, fig.width=10}
+Map_Inc_58$Group_4cat <- as.factor(factor(as.character(Map_Inc_58$Group_4cat), levels=c("ASL Early", "English Early", "ASL Later", "English Later"), exclude=""))
+nrow(Map_Inc_58)
+Grps <- ggplot(data=Map_Inc_58, mapping = aes(x= Group_4cat, y=AvgCorrect_Total)) + geom_boxplot() + geom_dotplot(mapping=aes(fill=Group_4cat, color=Group_4cat), alpha=0.8, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + scale_y_continuous(breaks = c(0.2, 0.4, 0.6, 0.8, 1.0), limits = c(0.2,1.0)) + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Proportion Correct") + scale_fill_grey(name = "Groups", breaks=c("ASL Early", "English Early", "ASL Later", "English Later"), labels=c("ASL Early", "English Early", "ASL Later", "English Later")) + scale_color_grey(name = "Groups", breaks=c("ASL Early", "English Early", "ASL Later", "English Later"), labels=c("ASL Early", "English Early", "ASL Later", "English Later")) + stat_summary(fun=mean, geom="point", shape=18, size=5, color="black")
+Grps
+```
+
+
+##WORK FOR CALLIE'S THESIS
+```{r}
+ID <- Total_Inc_Study$SUBJECT_ID
+Any <- Total_Inc_Study$Prop_AnyCounting_All
+Overt <- Total_Inc_Study$Prop_CountingBehavior_All
+Point <- Total_Inc_Study$Prop_PointingBehavior_All
+Map_Perf <- Total_Inc_Study$AvgCorrect_Total
+
+Map_SponC <- data.frame(ID, Any, Overt, Point)
+Map_SponC<- melt(Map_SponC, id.vars='ID')
+names(Map_SponC)[names(Map_SponC) == "variable"] <- "Count_Type"
+names(Map_SponC)[names(Map_SponC) == "value"] <- "Prop_Used"
+
+Map_SponC2 <- data.frame(ID, Map_Perf)
+Map_SponC3 <- merge(Map_SponC, Map_SponC2)
+```
+View(Map_SponC3)
+
+```{r}
+library("ggpubr")
+ggboxplot(Map_SponC3, x = "Count_Type", y = "Map_Perf",
+          ylab = "Mapping Performance (QN and QW)", xlab = "Spontaneous Counting Type")
+```
+
+```{r}
+AnyCount <- subset(Map_SponC3, Map_SponC3$Count_Type == "Any")
+OvertCount <- subset(Map_SponC3, Map_SponC3$Count_Type == "Overt")
+PointCount <- subset(Map_SponC3, Map_SponC3$Count_Type == "Point")
+
+
+#NEED TO CONFIRM WILCOXON BEST TO USE
+wilcox.test(AnyCount$Prop_Used, AnyCount$Map_Perf, paired = TRUE, alternative = "two.sided")
+wilcox.test(OvertCount$Prop_Used, OvertCount$Map_Perf, paired = TRUE, alternative = "two.sided")
+wilcox.test(PointCount$Prop_Used, PointCount$Map_Perf, paired = TRUE, alternative = "two.sided")
+```
+View(AnyCount)
+
+
+```{r}
+Map_long1 <- pivot_longer(data = Total_Inc_Study, cols=c(ends_with("Answer")), names_to = c("Type"), values_to = "Quantity")
+Map_long2 <- pivot_longer(data = Total_Inc_Study, cols=c(ends_with("Correct.")), names_to = c("Type2"), values_to = "Correct")
+Map_long3 <- cbind(Map_long1, Map_long2)
+Map_short <- Map_long3[,!grepl("^Item",names(Map_long3))] # delete columns that contain “item”
+
+which(colnames(Map_short)=="SumTotal_QuantityNumeral") #34th column
+which(colnames(Map_short)=="Sum_AnyCounting_All") #117th column
+Map_short <- Map_short[, -c(34:117)] #removes unnecessary columns
+
+# From Type column, create a new column (Map_Pair) for which IF Map_short$Type contains “NW” or “WN”, assign value “Numeral-Word” etc. 
+Map_Pair <- c()
+Map_short$Map_Pair <- ifelse(grepl("NW", Map_short$Type), "Numeral-Word", ifelse(grepl("WN", Map_short$Type), "Numeral-Word", ifelse(grepl("QN", Map_short$Type), "Quantity-Numeral", ifelse(grepl("NQ", Map_short$Type), "Quantity-Numeral", ifelse(grepl("QW", Map_short$Type), "Quantity-Word", ifelse(grepl("WQ", Map_short$Type), "Quantity-Word","bananas"))))))
+
+#From Quantity column, create A new column (Set Size) for Medium (3-5) and Large (6-9) quntities 
+Set_Size <- c()
+Map_short$Set_Size <- case_when(Map_short$Quantity <3 ~ 'Small', Map_short$Quantity >= 3 & Map_short$Quantity<= 5 ~ 'Medium', Map_short$Quantity > 5 ~ 'Large')
+
+#Remove rows for quantities 1 and 2 (practice trials) and Numeral-Word 
+Map_short <- subset(Map_short, Quantity !=1 & Quantity !=2 & Map_Pair!="Numeral-Word")
+```
+View(Map_short)
+
+```{r}
+#HIGHLY SKEWED
+d <- density(Map_short$Prop_CountingBehavior_All)
+plot(d)
+
+mean(Map_short$Prop_CountingBehavior_All)
+range(Map_short$Prop_CountingBehavior_All)
+```
+
+```{r}
+Bee <- ggplot(data=Total_Inc_Study, mapping = aes(x= Timing, y=Prop_CountingBehavior_All)) + geom_boxplot() + geom_dotplot(mapping=aes(fill=Modality, color=Modality), dotsize = 0.6, method = "dotdensity", binaxis = "y", stackdir = "center", alpha=0.8) + theme(legend.position="bottom", text = element_text(size=16), axis.title=element_text(size=16,face="bold"), legend.title=element_text(size=16), legend.text=element_text(size=16), axis.title.x=element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylab("Spontaneous Counting Usage") + scale_x_discrete(labels=c("Early" = "Early Language", "Later" = "Later Language")) + scale_y_continuous(limits= c(0, 1.0), breaks= c(0, 0.2, 0.4, 0.6, 0.8, 1.0)) + scale_fill_manual(name = "Language Modality", values=c("slateblue4", "gold"), breaks=c("English", "ASL"), labels=c("English", "ASL")) + scale_color_manual(name = "Language Modality", values=c("slateblue4", "gold"), breaks=c("English", "ASL"), labels=c("English", "ASL")) 
+Bee
+
+ggscatter(data=Total_Inc_Study, x = "Age_Rounded", y = "Prop_CountingBehavior_All", 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "Age (years)", ylab = "Spontaneous Counting Usage")
+
+ggscatter(data=Total_Inc_Study, x = "SES", y = "Prop_CountingBehavior_All", 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "SES", ylab = "Spontaneous Counting Usage")
+
+ggboxplot(Total_Inc_Study, x = "Timing", y = "Prop_CountingBehavior_All", 
+          color = "Timing", palette = c("#00AFBB", "#E7B800"),
+          order = c("Early", "Later"),
+          ylab = "Expressive Spontaneous Counting Usage", xlab = "Timing")
+
+ggboxplot(Total_Inc_Study, x = "Modality", y = "Prop_CountingBehavior_All", 
+          color = "Modality", palette = c("#00AFBB", "#E7B800"),
+          order = c("ASL", "English"),
+          ylab = "Expressive Spontaneous Counting Usage", xlab = "Modality")
+
+ggviolin(Total_Inc_Study, x = "Timing", y = "Prop_CountingBehavior_All", 
+          color = "Timing", palette = c("#00AFBB", "#E7B800"),
+          order = c("Early", "Later"),
+          ylab = "Expressive Spontaneous Counting Usage", xlab = "Timing")
+
+ggviolin(Total_Inc_Study, x = "Modality", y = "Prop_CountingBehavior_All", 
+          color = "Modality", palette = c("#00AFBB", "#E7B800"),
+          order = c("ASL", "English"),
+          ylab = "Expressive Spontaneous Counting Usage", xlab = "Modality")
+
+mean(Total_Inc_Study$Prop_CountingBehavior_All)
+dplyr::count(subset(Total_Inc_Study, Prop_CountingBehavior_All >0))
+
+mean(Early$Prop_CountingBehavior_All)
+mean(Later$Prop_CountingBehavior_All)
+
+wilcox.test(Total_Inc_Study$Prop_CountingBehavior_All ~ Total_Inc_Study$Timing, paired = FALSE, alternative = "two.sided")
+#W = 3445.5, p-value = 0.001785
+median(Early$Prop_CountingBehavior_All)
+median(Later$Prop_CountingBehavior_All)
+
+wilcox.test(Total_Inc_Study$Prop_CountingBehavior_All ~ Total_Inc_Study$Modality, paired = FALSE, alternative = "two.sided")
+#W = 4525, p-value = 0.9708
+median(ASL$Prop_CountingBehavior_All)
+median(English$Prop_CountingBehavior_All)
+```
+
+View(Total_Inc_Study)
+View(Total_Inc_Study$Timing)
+View(Total_Inc_Study$Prop_CountingBehavior_All)
+
+
