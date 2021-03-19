@@ -149,13 +149,14 @@ ggplot(data=Map_Inc, mapping = aes(x=Group_4cat, y=AvgCorrect_Total)) + geom_box
 ```
 
 * Performance at or near ceiling (greater than or equal to 90%)
-    + 58% of children performed at or near ceiling.
+    + 18.95% of children performed at ceiling (36 children out of 190)
 ```{r}
-Ceil <- Map_Inc$AvgCorrect_Total
-All <- .9 #ceiling performance 
+Ceil <- Map_Inc$SumCorrectTotal_All
+All <- 42 #ceiling performance 
 Var <- length(which(Ceil>= All))
 N_O <- nrow(Map_Inc) 
 (Var/N_O)*100
+Var
 ```
 
 > QUESTION 1: What is the relationship between language experience and mapping skills?
@@ -364,6 +365,14 @@ ols_test_normality(Map_lm)
 ols_plot_resid_hist(Map_lm)
 ols_test_correlation(Map_lm)
 ols_plot_resid_fit(Map_lm)
+```
+
+```{r}
+ggplot(data = Map_Inc, mapping = aes(x=Age_Rounded, y=SumCorrectTotal_All, shape = Group_4cat, color = Group_4cat)) + geom_point() + geom_smooth(method="loess", se=FALSE) + labs(x="Age (years)", y="Sum Correct") + theme(legend.position = "top", text = element_text(size=14)) + coord_cartesian(xlim = c(5, 9), ylim= c(0,42)) + scale_y_continuous(breaks=c(0, 15, 25, 35, 42)) + scale_x_continuous(breaks=c(5, 6, 7, 8, 9)) + scale_shape_manual(name="Participant Groups", values=c(16, 17, 0, 5)) + scale_color_manual(name="Participant Groups", values=c("deepskyblue3", "firebrick3", "yellow", "plum"))
+
+
+ggplot(data=Map_Inc, mapping = aes(x= Group_4cat, y=SumCorrectTotal_All)) + geom_boxplot() + geom_dotplot(alpha=0.7, dotsize = .8, method = "dotdensity", binaxis = "y", stackdir = "center") + theme_bw() + theme(legend.position="top", text = element_text(size=14), axis.title.x=element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ylab("Sum Correct")
+
 ```
 
 
